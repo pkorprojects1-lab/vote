@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voting Admin | Outstanding Headteacher &amp; Principal Awards 2026</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; background: #f4faf7; color: #111918; padding: 24px 16px 60px; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 17px; margin-bottom: 12px; }
+  .muted { color: #5a6e64; font-size: 14px; line-height: 1.5; }
+  .card { background: #fff; border: 1px solid #e2ede7; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #5a6e64; text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 6px; }
+  input, textarea { width: 100%; padding: 10px 12px; border: 1.5px solid #e2ede7; border-radius: 9px; font-size: 14px; font-family: inherit; }
+  .opt-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
+  button { padding: 11px 16px; border: none; border-radius: 9px; font-size: 14px; font-weight: 700; cursor: pointer; background: #0f6e3f; color: #fff; }
+  button.ghost { background: #e6f9f0; color: #0f6e3f; }
+  button.danger { background: #fdecea; color: #c62828; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .msg { font-size: 14px; margin-top: 10px; min-height: 18px; }
+  .err { color: #c62828; } .ok { color: #0f6e3f; font-weight: 600; }
+  .poll { border-top: 1px solid #e2ede7; padding-top: 14px; margin-top: 14px; }
+  .poll:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; margin-left: 8px; }
+  .tag.open { background: #e6f9f0; color: #0f6e3f; } .tag.closed { background: #eceff1; color: #5a6e64; }
+  .tally { font-size: 14px; margin-top: 8px; line-height: 1.7; }
+  .link { font-size: 13px; word-break: break-all; color: #0f6e3f; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Voting admin</h1>
+  <p class="muted" style="margin-bottom:16px">Only you can create polls. Results are shown to voters after the closing time; you can see live counts here.</p>
+
+  <div class="card" id="keyCard">
+    <h2>Admin key</h2>
+    <label for="adminKey">Enter your admin key</label>
+    <input type="password" id="adminKey" autocomplete="off">
+    <div class="row"><button id="saveKey">Continue</button></div>
+    <div id="keyMsg" class="msg"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <h2>Create a poll</h2>
+      <label for="title">Title</label>
+      <input id="title" placeholder="Outstanding Headteacher/Principal of the Year 2026">
+      <label for="desc">Description (optional)</label>
+      <textarea id="desc" rows="2" placeholder="Vote for the school leader whose dedication…"></textarea>
+      <label>Options</label>
+      <div id="opts"></div>
+      <div class="row"><button class="ghost" id="addOpt">+ Add option</button></div>
+      <label for="closes">Closing time (optional, Nairobi time)</label>
+      <input type="datetime-local" id="closes">
+      <p class="muted" style="margin-top:6px">Leave blank to close at the default of 30 Nov 2026, 23:59 (Nairobi time).</p>
+      <div class="row"><button id="createBtn">Create poll</button></div>
+      <div id="createMsg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Polls</h2>
+      <div id="polls"><p class="muted">Loading…</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY_NAME = 'vote_admin_key';
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function setMsg(id, text, cls) { var m = $(id); m.textContent = text; m.className = 'msg ' + (cls || ''); }
+  function key() { return sessionStorage.getItem(KEY_NAME) || ''; }
+  function api(url, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'Content-Type': 'application/json', 'X-Admin-Key': key() }, opts.headers || {});
+    return fetch(url, opts).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+    });
+  }
+  function fmt(ms) {
+    return new Date(ms).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short' });
+  }
+  function optRow(o) {
+    var row = el('div', 'opt-row');
+    var name = el('input'); name.placeholder = 'Name *'; name.className = 'o-name';
+    var pos = el('input'); pos.placeholder = 'Position'; pos.className = 'o-pos';
+    var county = el('input'); county.placeholder = 'County'; county.className = 'o-county';
+    if (o) { name.value = o.name; pos.value = o.position; county.value = o.county; }
+    var rm = el('button', 'danger', '✕');
+    rm.addEventListener('click', function () { row.remove(); });
+    row.appendChild(name); row.appendChild(pos); row.appendChild(county); row.appendChild(rm);
+    return row;
+  }
+  function addOpt(o) { $('opts').appendChild(optRow(o)); }
+
+  function loadPolls() {
+    api('/api/admin/polls').then(function (r) {
+      var box = $('polls');
+      if (!r.ok) { box.innerHTML = ''; box.appendChild(el('p', 'err', r.data.error || 'Could not load polls.')); return; }
+      box.innerHTML = '';
+      if (!r.data.polls.length) { box.appendChild(el('p', 'muted', 'No polls yet.')); return; }
+      r.data.polls.forEach(function (p) {
+        var wrap = el('div', 'poll');
+        var head = el('div');
+        head.appendChild(el('strong', '', p.title));
+        head.appendChild(el('span', 'tag ' + (p.open ? 'open' : 'closed'), p.open ? 'Open' : 'Closed'));
+        wrap.appendChild(head);
+        wrap.appendChild(el('div', 'muted', 'Closes ' + fmt(p.closesAt) + ' · ' + p.totalVotes + ' paid vote(s)'));
+        var link = location.origin + '/vote.html?id=' + encodeURIComponent(p.id);
+        wrap.appendChild(el('div', 'link', link));
+        var t = el('div', 'tally');
+        p.options.forEach(function (o) {
+          t.appendChild(el('div', '', o.name + ': ' + (p.tally[o.id] || 0)));
+        });
+        wrap.appendChild(t);
+        var row = el('div', 'row');
+        var copy = el('button', 'ghost', 'Copy voter link');
+        copy.addEventListener('click', function () {
+          navigator.clipboard.writeText(link).then(function () { copy.textContent = 'Copied'; });
+        });
+        row.appendChild(copy);
+        wrap.appendChild(row);
+        box.appendChild(wrap);
+      });
+    });
+  }
+
+  function showApp() {
+    $('keyCard').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    if (!$('opts').children.length) { addOpt(); addOpt(); }
+    loadPolls();
+  }
+
+  $('saveKey').addEventListener('click', function () {
+    var k = $('adminKey').value.trim();
+    if (!k) return setMsg('keyMsg', 'Enter the admin key.', 'err');
+    sessionStorage.setItem(KEY_NAME, k);
+    api('/api/admin/polls').then(function (r) {
+      if (r.ok) return showApp();
+      sessionStorage.removeItem(KEY_NAME);
+      setMsg('keyMsg', 'That key is not valid.', 'err');
+    });
+  });
+
+  $('addOpt').addEventListener('click', function () { addOpt(); });
+
+  $('createBtn').addEventListener('click', function () {
+    var options = [];
+    document.querySelectorAll('#opts .opt-row').forEach(function (row) {
+      options.push({
+        name: row.querySelector('.o-name').value.trim(),
+        position: row.querySelector('.o-pos').value.trim(),
+        county: row.querySelector('.o-county').value.trim()
+      });
+    });
+    var closes = $('closes').value ? new Date($('closes').value + ':00+03:00').toISOString() : undefined;
+    var btn = $('createBtn');
+    btn.disabled = true;
+    api('/api/admin/polls', {
+      method: 'POST',
+      body: JSON.stringify({ title: $('title').value.trim(), description: $('desc').value.trim(), options: options, closesAt: closes })
+    }).then(function (r) {
+      btn.disabled = false;
+      if (!r.ok) return setMsg('createMsg', r.data.error || 'Could not create poll.', 'err');
+      setMsg('createMsg', 'Poll created. Link: ' + location.origin + '/vote.html?id=' + r.data.id, 'ok');
+      $('title').value = ''; $('desc').value = ''; $('closes').value = '';
+      $('opts').innerHTML = ''; addOpt(); addOpt();
+      loadPolls();
+    }).catch(function () { btn.disabled = false; setMsg('createMsg', 'Network error.', 'err'); });
+  });
+
+  if (key()) api('/api/admin/polls').then(function (r) { if (r.ok) showApp(); });
+})();
+</script>
+</body>
+</html>
